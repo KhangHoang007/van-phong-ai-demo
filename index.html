@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0B1A2E">
+<title>Văn Phòng AI</title>
+
+<link rel="icon" href="icon-192.png">
+<style>
+  :root{--bg:#0B1A2E;--panel:#12263F;--panel2:#0F2138;--teal:#2DD4BF;--green:#4ADE80;--text:#EAF4F1;--dim:#9DB8AD;--amber:#FBBF24;--red:#F87171}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text)}
+  header{display:flex;align-items:center;gap:14px;padding:18px 22px;border-bottom:1px solid #1E3A56}
+  header img{width:44px;height:44px;border-radius:10px}
+  header h1{font-size:21px;margin:0}
+  header p{margin:2px 0 0;color:var(--dim);font-size:13px}
+  main{max-width:1080px;margin:0 auto;padding:20px 16px 40px}
+  .town{background:var(--panel2);border:1px solid #1E3A56;border-radius:14px;padding:10px;margin-bottom:22px}
+  .town canvas{display:block;width:100%;height:auto;border-radius:8px}
+  .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:22px}
+  .card{background:var(--panel);border:1px solid #1E3A56;border-radius:14px;padding:14px}
+  .card.manager{border-color:var(--teal)}
+  .card .name{font-weight:700;font-size:15px}
+  .card .role{color:var(--dim);font-size:12px;min-height:30px;margin-top:3px}
+  .badge{display:inline-block;font-size:11px;padding:2px 9px;border-radius:99px;margin:8px 0}
+  .badge.busy{background:#134E4A;color:var(--teal)}
+  .badge.idle{background:#1E293B;color:var(--dim)}
+  .bar{height:8px;background:#1E293B;border-radius:99px;overflow:hidden}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--teal),var(--green));transition:width .6s}
+  .card .pct{font-size:12px;color:var(--dim);margin-top:5px}
+  .card .doing{font-size:12px;color:var(--amber);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  section{background:var(--panel2);border:1px solid #1E3A56;border-radius:14px;padding:16px;margin-bottom:22px}
+  section h2{margin:0 0 12px;font-size:16px}
+  input[type=text],textarea{width:100%;background:#0A1828;border:1px solid #1E3A56;border-radius:10px;color:var(--text);padding:11px 12px;font-size:14px;font-family:inherit}
+  textarea{margin-top:9px;resize:vertical;min-height:58px}
+  button{background:var(--teal);color:#06251F;border:0;border-radius:10px;padding:11px 20px;font-weight:700;font-size:14px;cursor:pointer;margin-top:11px}
+  button:hover{filter:brightness(1.1)}
+  .task{border:1px solid #1E3A56;border-radius:12px;padding:13px 14px;margin-bottom:11px;background:var(--panel)}
+  .task .tt{font-weight:700;font-size:15px}
+  .task .meta{color:var(--dim);font-size:12px;margin:3px 0 8px}
+  .task .stage{color:var(--teal);font-size:13px;font-weight:600}
+  .task .detail{color:var(--dim);font-size:13px;margin-top:5px;white-space:pre-wrap}
+  .task .result{background:#0A2A22;border:1px solid #134E4A;border-radius:10px;padding:10px 12px;margin-top:10px;font-size:13px;white-space:pre-wrap}
+  .task .log{margin-top:9px;font-size:12px;color:var(--dim)}
+  .task .log div{margin:2px 0}
+  .empty{color:var(--dim);font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <img src="icon-192.png" alt="">
+  <div>
+    <h1>Văn Phòng AI</h1>
+    <p>Anh giao nhiệm vụ — em phân phối cho nhân viên, kiểm tra và trình lại anh.</p>
+  </div>
+</header>
+<main>
+  <div class="town"><canvas id="cv" width="1280" height="853"></canvas></div>
+  <div class="row" id="staff"></div>
+  <section>
+    <h2>Giao nhiệm vụ mới</h2>
+    <input type="text" id="title" placeholder="Tên nhiệm vụ, ví dụ: Dựng video giới thiệu sản phẩm X">
+    <textarea id="detail" placeholder="Chi tiết thêm cho em (không bắt buộc): yêu cầu, hạn giờ, lưu ý..."></textarea>
+    <button id="send">Gửi nhiệm vụ cho em</button>
+    <span id="msg" style="margin-left:10px;color:var(--green);font-size:13px"></span>
+  </section>
+  <section>
+    <h2>Nhiệm vụ</h2>
+    <div id="tasks"><p class="empty">Chưa có nhiệm vụ nào.</p></div>
+  </section>
+</main>
+<script>
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const SPEED = 100, CELL = 8;
+const mapImg = new Image(); mapImg.src = 'assets/bo-canh-thi-tran.webp';
+const SPR = {};
+['quanly','kehoach','thicong','kiemtra','duyet'].forEach(n => { const i = new Image(); i.src = 'assets/nv-' + n + '.png'; SPR[n] = i; });
+
+// ===== Luoi va cham (gen_grid.py) =====
+const GRID = [
+"#################################################################################################################################################################",
+"#################################################################################################################################################################",
+"#################################################################################################################################################################",
+"#################################################################################################################################################################",
+"###############################################################################################################....##############################################",
+"##############################################################################################################......#############################################",
+"#############################################################################################################........############################################",
+"############################################################################################################..........###########################################",
+"###########################################################################################################............##########################################",
+"##########################################################################################################..............#########################################",
+"########################################################################################################.................########################################",
+"#######################################################################################################...................#######################################",
+"#####################################################################################################.....................#######################################",
+"###################################################################################################............##..........######################################",
+"#################################################################################################.............####..........#####################################",
+"###############################################################################################.............#######..........####################################",
+"#############################################################################################..............#########..........###################################",
+"###########################################################################################...............###########..........##################################",
+"########################################################################################................##############..........#################################",
+"######################################################################################................################..........#################################",
+"####################################################################################................###################..........################################",
+"#################################################################################................#######################..........###############################",
+"##############################################################################.................##########################.........###############################",
+"###########################################################################..................#############################.........##############################",
+"########################################################################...................################################........##############################",
+"#####################################################################....................##################################........##############################",
+"###################################################################...................######################################........#############################",
+"######################################################..............................................########################........#############################",
+"######################################################..........######..........##..................########################........#############################",
+"######################################################..........##############..##..................#########################........############################",
+"######################################################..........##############..##..................#########################........############################",
+"######################################################..........##############..##..................##########################.......############################",
+"#####################################################...........##############..##..................##########################........###########################",
+"##############################################..................##############..##..................##########################........###########################",
+"#####################################...........................##############..##..................###########################........##########################",
+"################################....................#####.......######..........##..................###########################........##########################",
+"###########################.........................#####.......######..........##..................###########################........##########################",
+"######################..............................#####.......######..........##..................############################........#########################",
+"#######....#######..................................#####.################....####..................############################........#########################",
+"#####.......#####..............................##########.################....####..................############################........#########################",
+"#####.......#####......................##################.##########..............###############...#############################.......#########################",
+"#####........####.................#######################.##########..............###############...#############################.......#########################",
+"#####........####............############################.##########..##########..###############...#############################........########################",
+"######.......####........################################.##########..##########..###############...#############################........########################",
+"######.......####....####################################.............##########..###############...#############################........########################",
+"######........###....############################################.....##########..###############...##############################.......########################",
+"######........###....############################################.....##########..###############...##############################.......########################",
+"#######.......###....############################################.................###############...##############################.......########################",
+"#######........#.....############################################..##########.....###############...##############################.......########################",
+"#######........#....#############################################..##########.....###############...##############################.......########################",
+"#######........#....#####################################..........##########...#################...##############################.......########################",
+"########.......#....#####################################..........##########...#################...##############################........#######################",
+"########............##################################.............##########...#################...##############################........#######################",
+"########............##################################.............##########...#################...###############################.......#######################",
+"########...........###################################..........................#################...###############################.......#######################",
+"#########..........###################################..........................#################...###############################.......#######################",
+"#########..........###################################..........................#################...###############################.......#######################",
+"#########..........###################################################.....########################################################.......#######################",
+"#########.........####################################################.....########################################################.......#######################",
+"##########........################################..............................#################....##############################.......#######################",
+"##########........################################..............................#################....##############################.......#######################",
+"##########........################################..............................#################....##############################.......#######################",
+"###########.......################################..............................#################....#############################........#######################",
+"###########.......################################...................................................#############################........#######################",
+"###########........###############################...................................................#############################........#######################",
+"###########........###############################...................................................#############################........#######################",
+"############.......###############################...................................................#############################.........######################",
+"############.......################################################.....##########################################################.........######################",
+"############........##############################################......#########################################################...........#####################",
+"############........##############################################......#########################################################............####################",
+"#############.......################################........................#####################################################............####################",
+"#############.......######################......................................#################################################............####################",
+"#############........##################..............................................############################################............####################",
+"#############........#########....#......................................................#######################################........#########################",
+"#############........#####...................................................................###################################........#########################",
+"##############.......#####........................................................................##############################........#########################",
+"##############.......#####.............................................................................#########################.......##########################",
+"##############.................................................##......#.....................................###################.......##########################",
+"##############...................................################......#####.......................................############........##########################",
+"##############............................######################......###########........................................######........##########################",
+"###############........................#########################......###############.........................................#........##########################",
+"###############.....................############################......###################.............................................###########################",
+"###############.................################################......########################........................................###########################",
+"###############..............###################################......########################........................................###########################",
+"################..........######################################.....#########################........................................###########################",
+"################.......########################################......#########################..........######........................###########################",
+"################........#######################################......#########################...........##########...................###########################",
+"################........#######################################......########################.............###############............############################",
+"################........#######################################......########################..............###################.......############################",
+"#################.......#######################################......########################.......#.......##################.......############################",
+"#################.......#######################################.....#########################.......##.......################........############################",
+"#################.......#######################################.....#########################.......###.......###############........############################",
+"#################........#####################################......#########################.......####.......##############........############################",
+"#################........#####################################......########################........#####.......#############.......#############################",
+"##################.......#####################################......########################.......#######.......############.......#############################",
+"##################.......#####################################......########################.......########........#########........#############################",
+"##################.......##........###########################......########################.......#########........########........#############################",
+"##################.......#.......................#############.....#########################.......##########........#######........#############################",
+"##################.................................................#########################.......###########.......#######.......##############################",
+"##################...................................................................................##########......#######.......##############################",
+"##################...................................................................................................#######.......##############################",
+"###################................................................................................................................##############################",
+"###################.......#........................................................................................................##############################",
+"###################.......############.............................................................................................##############################",
+"###################........########################...............................................................................###############################",
+"###################........###############################################........................................................###############################",
+"###################........#############################################################################..........................###############################"
+];
+const GH = GRID.length, GW = GRID[0].length;
+const walk = (gx, gy) => gx >= 0 && gy >= 0 && gx < GW && gy < GH && GRID[gy][gx] === '.';
+const cellOf = (x, y) => [Math.floor(x / CELL), Math.floor(y / CELL)];
+function snap(x, y){
+  let [gx, gy] = cellOf(x, y);
+  if (walk(gx, gy)) return [gx, gy];
+  for (let r = 1; r < 8; r++)
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++)
+      if (walk(gx + dx, gy + dy)) return [gx + dx, gy + dy];
+  return [gx, gy];
+}
+function nearWall(gx, gy){
+  return !(walk(gx + 1, gy) && walk(gx - 1, gy) && walk(gx, gy + 1) && walk(gx, gy - 1));
+}
+function astar(a, b){
+  const key = (x, y) => y * GW + x;
+  const open = new Map(), came = new Map(), gs = new Map(), fs = new Map();
+  const h = (x, y) => Math.hypot(x - b[0], y - b[1]);
+  gs.set(key(a[0], a[1]), 0); fs.set(key(a[0], a[1]), h(a[0], a[1]));
+  open.set(key(a[0], a[1]), a);
+  const DIRS = [[1,0,1],[-1,0,1],[0,1,1],[0,-1,1],[1,1,1.414],[1,-1,1.414],[-1,1,1.414],[-1,-1,1.414]];
+  while (open.size){
+    let bk = null, bf = Infinity;
+    for (const [k] of open){ const f = fs.get(k); if (f < bf){ bf = f; bk = k; } }
+    const cur = open.get(bk); open.delete(bk);
+    if (cur[0] === b[0] && cur[1] === b[1]){
+      const path = [cur]; let k = bk;
+      while (came.has(k)){ const p = came.get(k); path.unshift(p); k = key(p[0], p[1]); }
+      return path;
+    }
+    for (const [dx, dy, c] of DIRS){
+      const nx = cur[0] + dx, ny = cur[1] + dy;
+      if (!walk(nx, ny)) continue;
+      if (dx && dy && (!walk(cur[0] + dx, cur[1]) || !walk(cur[0], cur[1] + dy))) continue; // khong cat goc
+      let cost = c + (nearWall(nx, ny) ? 0.7 : 0);
+      const nk = key(nx, ny), ng = gs.get(bk) + cost;
+      if (ng < (gs.get(nk) ?? Infinity)){
+        gs.set(nk, ng); fs.set(nk, ng + h(nx, ny)); came.set(nk, cur); open.set(nk, [nx, ny]);
+      }
+    }
+  }
+  return null;
+}
+function losClear(p, q){
+  const d = Math.hypot(q[0] - p[0], q[1] - p[1]), steps = Math.ceil(d / 2);
+  const px = d ? -(q[1] - p[1]) / d * 7 : 0, py = d ? (q[0] - p[0]) / d * 7 : 0;
+  for (let i = 0; i <= steps; i++){
+    const x = p[0] + (q[0] - p[0]) * i / steps, y = p[1] + (q[1] - p[1]) * i / steps;
+    for (const [ox, oy] of [[0, 0], [px, py], [-px, -py]]){
+      const [gx, gy] = cellOf(x + ox, y + oy);
+      if (!walk(gx, gy)) return false;
+    }
+  }
+  return true;
+}
+function route(a, b){ // toa do pixel -> duong di da lam muot
+  const ca = snap(a[0], a[1]), cb = snap(b[0], b[1]);
+  const cells = astar(ca, cb);
+  if (!cells) return [a, b];
+  let pts = cells.map(([gx, gy]) => [gx * CELL + 4, gy * CELL + 4]);
+  pts[0] = a; pts[pts.length - 1] = b;
+  const out = [pts[0]];
+  let i = 0;
+  while (i < pts.length - 1){
+    let j = pts.length - 1;
+    while (j > i + 1 && !losClear(pts[i], pts[j])) j--;
+    out.push(pts[j]); i = j;
+  }
+  return out;
+}
+function pathLen(p){ let L = 0; for (let i = 1; i < p.length; i++) L += Math.hypot(p[i][0]-p[i-1][0], p[i][1]-p[i-1][1]); return L; }
+function posOn(p, dist){
+  if (dist <= 0) return p[0];
+  let acc = 0;
+  for (let i = 1; i < p.length; i++){
+    const d = Math.hypot(p[i][0]-p[i-1][0], p[i][1]-p[i-1][1]);
+    if (acc + d >= dist){ const k = d ? (dist - acc) / d : 0; return [p[i-1][0] + (p[i][0]-p[i-1][0]) * k, p[i-1][1] + (p[i][1]-p[i-1][1]) * k]; }
+    acc += d;
+  }
+  return p[p.length - 1];
+}
+
+// ===== Diem neo =====
+const CHAIR = { quanly: [580, 283], kehoach: [497, 358], thicong: [593, 383], kiemtra: [465, 415], duyet: [568, 438] };
+const HOME = { quanly: [1107, 567], kehoach: [160, 328], thicong: [224, 610], kiemtra: [518, 768], duyet: [915, 789] };
+const QLFRONT = [608, 334];
+const SIDE = { thicong: [548, 382], kiemtra: [520, 420], duyet: [530, 440] };
+const PANTS = { quanly: ['#2E3D4E', '#3A3A3A'], kehoach: ['#B3A284', '#6B4A2F'], thicong: ['#A08C66', '#4A5D43'], kiemtra: ['#33507A', '#7FA8C9'], duyet: ['#8D8D94', '#C96F7F'] };
+const NAMES = { quanly: 'Muse — Quản lý', kehoach: 'Kế hoạch', thicong: 'Thi công', kiemtra: 'Kiểm tra', duyet: 'Duyệt' };
+
+let confetti0 = [];
+function drawChar(id, s, t){
+  const img = SPR[id];
+  const H = 58, W = H * (img.naturalWidth / img.naturalHeight || 0.6);
+  let [x, y] = s.pos;
+  let dy = 0;
+  if (s.moving) dy = -Math.abs(Math.sin(s.walkDist / 6)) * 2.6;
+  if (s.sitting) dy = 12;
+  if (s.celebrate) dy = Math.abs(Math.sin(t * 7 + id.length)) * -14;
+  if (s.working) dy = 12 + Math.sin(t * 22) * 1.2;
+  ctx.fillStyle = '#0005';
+  ctx.beginPath(); ctx.ellipse(x, y + 4, 13, 4, 0, 0, 7); ctx.fill();
+  if (img.complete && img.naturalWidth){
+    const flip = s.moving && s.dirx < -0.5;
+    ctx.save();
+    ctx.translate(x, 0); if (flip) ctx.scale(-1, 1); ctx.translate(-x, 0);
+    if (s.moving){
+      const tilt = Math.sin(s.walkDist / 6) * 0.035;
+      ctx.translate(x, y + dy); ctx.rotate(tilt); ctx.translate(-x, -(y + dy));
+      const cropH = H * 0.84;
+      ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight * 0.84, x - W / 2, y - H + dy + 4, W, cropH);
+      const lp = PANTS[id], ph = s.walkDist / 6;
+      const yHip = y - H + dy + 4 + cropH - 1, legLen = H * 0.17;
+      [[-1, 0], [1, Math.PI]].forEach(([side, off]) => {
+        const sw = Math.sin(ph + off);
+        const ax = x + side * W * 0.15 + sw * 2.2, ay = yHip + legLen - Math.max(0, Math.cos(ph + off)) * 2.4;
+        ctx.strokeStyle = lp[0]; ctx.lineWidth = 5.5; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(x + side * W * 0.15, yHip); ctx.lineTo(ax, ay); ctx.stroke();
+        ctx.fillStyle = lp[1];
+        ctx.beginPath(); ctx.ellipse(ax + 1.5, ay + 1.5, 4.6, 2.8, 0, 0, 7); ctx.fill();
+      });
+    } else {
+      ctx.drawImage(img, x - W / 2, y - H + dy + 4, W, H);
+    }
+    ctx.restore();
+  }
+  if (s.carry){ ctx.fillStyle = '#FFF'; ctx.fillRect(x + W / 2 - 3, y - 28 + dy, 10, 13); ctx.strokeStyle = '#999'; ctx.strokeRect(x + W / 2 - 3, y - 28 + dy, 10, 13); }
+  if (s.working){
+    const pct = Math.max(0, Math.min(100, s.pct || 0));
+    ctx.fillStyle = '#0B1A2ECC'; ctx.fillRect(x - 30, y - H - 16 + dy, 60, 11);
+    ctx.fillStyle = '#4ADE80'; ctx.fillRect(x - 29, y - H - 15 + dy, 58 * pct / 100, 9);
+    ctx.fillStyle = '#FFF'; ctx.font = '800 9px Segoe UI'; ctx.textAlign = 'center';
+    ctx.fillText(pct + '%', x, y - H - 7 + dy); ctx.textAlign = 'left';
+  }
+  ctx.font = '700 12.5px Segoe UI'; ctx.textAlign = 'center';
+  ctx.shadowColor = '#000'; ctx.shadowBlur = 4;
+  ctx.fillStyle = '#FFF'; ctx.fillText(NAMES[id], x, y + 22);
+  ctx.shadowBlur = 0; ctx.textAlign = 'left';
+  if (s.bubble){
+    const text = s.bubble;
+    ctx.font = '600 13px Segoe UI';
+    const w = ctx.measureText(text).width + 20;
+    const bx = Math.max(6, Math.min(1280 - w - 6, x - w / 2)), by = y - H - 48 + dy;
+    ctx.fillStyle = '#FFF'; ctx.beginPath(); ctx.roundRect(bx, by, w, 27, 10); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x - 5, by + 26); ctx.lineTo(x + 5, by + 26); ctx.lineTo(x, by + 34); ctx.fill();
+    ctx.fillStyle = '#12303F'; ctx.fillText(text, bx + 10, by + 18);
+  }
+}
+
+// ===== Director: nhan vien song theo trang thai that tu /api/state =====
+const IDS = ['quanly', 'kehoach', 'thicong', 'kiemtra', 'duyet'];
+const STAGE_WORKER = { 1: 'kehoach', 2: 'thicong', 3: 'kiemtra', 4: 'duyet' };
+const STAGE_PHRASE = { 1: 'Đang lên kế hoạch...', 2: 'Đang thi công...', 3: 'Đang kiểm tra...', 4: 'Đang duyệt...' };
+const chars = {};
+for (const id of IDS){
+  chars[id] = { pos: [...CHAIR[id]], queue: [], cur: null, mode: 'sit', carry: false,
+                pct: 0, pctBase: 0, pctTarget: 0, workStart: 0, bubble: null, bubbleUntil: 0,
+                celebUntil: 0, dirx: 1, walkDist: 0, movingNow: false };
+}
+const nowS = () => performance.now() / 1000;
+function say(id, text, sec){ const c = chars[id]; c.bubble = text; c.bubbleUntil = nowS() + sec; }
+function walkTo(id, to, carry){ chars[id].queue.push({ type: 'walk', to, carry: !!carry }); }
+function pauseQ(id, sec){ chars[id].queue.push({ type: 'pause', sec }); }
+
+function stepChar(c, dt){
+  if (!c.cur){
+    c.cur = c.queue.shift() || null;
+    if (c.cur && c.cur.type === 'walk'){
+      c.cur.pts = route(c.pos, c.cur.to); c.cur.len = pathLen(c.cur.pts);
+      c.cur.elapsed = 0; c.cur.dur = Math.max(0.3, c.cur.len / SPEED);
+      c.carry = c.cur.carry;
+    }
+    if (c.cur && c.cur.type === 'pause') c.cur.left = c.cur.sec;
+  }
+  const cur = c.cur;
+  c.movingNow = false;
+  if (cur){
+    if (cur.type === 'walk'){
+      cur.elapsed += dt;
+      const u = Math.min(1, cur.elapsed / cur.dur);
+      const ed = cur.len * (u - 0.45 * Math.sin(2 * Math.PI * u) / (2 * Math.PI));
+      const p = posOn(cur.pts, ed), ahead = posOn(cur.pts, Math.min(cur.len, ed + 3));
+      c.dirx = ahead[0] - p[0]; c.walkDist = ed; c.pos = p; c.movingNow = true;
+      if (u >= 1){ c.cur = null; c.carry = false; }
+    } else if (cur.type === 'pause'){
+      cur.left -= dt; if (cur.left <= 0) c.cur = null;
+    }
+  }
+  if (c.mode === 'work') c.pct = Math.min(c.pctTarget - 1, c.pctBase + (nowS() - c.workStart) * 0.9);
+}
+function drawState(id){
+  const c = chars[id];
+  return { pos: c.pos, moving: c.movingNow, sitting: c.mode === 'sit' && !c.movingNow,
+           working: c.mode === 'work' && !c.movingNow, carry: c.carry,
+           celebrate: nowS() < c.celebUntil, dirx: c.dirx, walkDist: c.walkDist,
+           pct: Math.round(c.pct), bubble: nowS() < c.bubbleUntil ? c.bubble : null };
+}
+function setWorker(stage){
+  const w = STAGE_WORKER[stage];
+  for (const id of IDS){
+    if (id !== 'quanly' && id !== w && chars[id].mode === 'work'){ chars[id].mode = 'sit'; chars[id].pct = 0; }
+  }
+  if (w && chars[w].mode !== 'work'){
+    const c = chars[w];
+    c.mode = 'work'; c.pctBase = (stage - 1) * 20; c.pctTarget = stage * 20;
+    c.pct = c.pctBase; c.workStart = nowS();
+    say(w, STAGE_PHRASE[stage], 3);
+  }
+}
+let seenTask = null, seenStage = -1, celebratedFor = null, hudTask = null;
+function director(s){
+  const active = s.tasks.find(t => t.stage < 5);
+  hudTask = active || null;
+  if (active){
+    if (active.id !== seenTask){
+      seenTask = active.id; seenStage = active.stage;
+      say('quanly', 'Việc mới: ' + active.title, 6);
+      if (active.stage >= 1) setWorker(active.stage);
+    } else if (active.stage !== seenStage){
+      const a = seenStage, b = active.stage; seenStage = b;
+      if (a === 0 && b === 1){
+        walkTo('kehoach', QLFRONT, false); pauseQ('kehoach', 0.8); walkTo('kehoach', CHAIR.kehoach, true);
+        setWorker(1);
+      } else if (a >= 1 && b >= 2 && b <= 4){
+        const prev = STAGE_WORKER[a], next = STAGE_WORKER[b];
+        chars[prev].mode = 'sit'; chars[prev].pct = 0;
+        walkTo(prev, SIDE[next] || CHAIR[next], true); pauseQ(prev, 0.8); walkTo(prev, CHAIR[prev], false);
+        setWorker(b);
+      } else if (b >= 1) setWorker(b);
+    }
+  } else {
+    const done = s.tasks.find(t => t.stage >= 5);
+    if (seenTask && done && done.id === seenTask && celebratedFor !== seenTask){
+      celebratedFor = seenTask; seenTask = null; seenStage = -1;
+      say('duyet', 'Đóng dấu duyệt!', 3);
+      say('quanly', 'Hoàn thành! Trình anh duyệt ✓', 5);
+      for (const id of IDS){ chars[id].mode = 'sit'; chars[id].pct = 0; chars[id].celebUntil = nowS() + 3.5; }
+    }
+  }
+}
+
+// ===== Vong lap ve =====
+let confetti = [], lastTs = 0, tickN = 0;
+function frame(ts){
+  const dt = Math.min(0.05, lastTs ? (ts - lastTs) / 1000 : 0.016); lastTs = ts; tickN++;
+  const t = ts / 1000;
+  for (const id of IDS) stepChar(chars[id], dt);
+  ctx.clearRect(0, 0, 1280, 853);
+  if (mapImg.complete) ctx.drawImage(mapImg, 0, 0, 1280, 853);
+  ctx.fillStyle = '#0B1A2EDD'; ctx.fillRect(14, 12, 452, 40);
+  ctx.fillStyle = '#FFF'; ctx.font = '800 16px Segoe UI';
+  ctx.fillText('VĂN PHÒNG AI — nhân viên chạy theo việc thật', 26, 38);
+  IDS.map(id => [id, chars[id].pos[1]]).sort((a, b) => a[1] - b[1]).forEach(([id]) => drawChar(id, drawState(id), t));
+  const anyCeleb = IDS.some(id => nowS() < chars[id].celebUntil);
+  if (anyCeleb){
+    if (tickN % 3 === 0) for (let i = 0; i < 6; i++) confetti.push({ x: 480 + ((tickN * 37 + i * 61) % 220), y: 250, vy: 1.4 + (i % 3) * .5, c: ['#F87171', '#FBBF24', '#4ADE80', '#60A5FA', '#F472B6'][i % 5], r: (tickN + i) % 6 });
+    confetti = confetti.filter(p => p.y < 520);
+    confetti.forEach(p => { p.y += p.vy; ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r + tickN * .05); ctx.fillStyle = p.c; ctx.fillRect(-4, -2.5, 8, 5); ctx.restore(); });
+  } else confetti = [];
+  ctx.fillStyle = '#0B1A2EE8'; ctx.fillRect(14, 795, 1252, 46);
+  ctx.fillStyle = '#FFF'; ctx.font = '700 14.5px Segoe UI';
+  let label, pct;
+  if (hudTask){ label = 'Nhiệm vụ: ' + hudTask.title + ' — ' + hudTask.status_text; pct = hudTask.progress || 0; }
+  else if (celebratedFor){ label = 'Đã hoàn thành nhiệm vụ — kết quả ở khung bên dưới ✓'; pct = 100; }
+  else { label = 'Chưa có nhiệm vụ đang chạy — anh giao việc ở khung bên dưới nhé'; pct = 0; }
+  ctx.fillText(label, 26, 824);
+  ctx.fillStyle = '#1E293B'; ctx.fillRect(880, 812, 300, 13);
+  const g = ctx.createLinearGradient(880, 0, 1180, 0); g.addColorStop(0, '#2DD4BF'); g.addColorStop(1, '#4ADE80');
+  ctx.fillStyle = g; ctx.fillRect(880, 812, 300 * pct / 100, 13);
+  ctx.fillStyle = '#FFF'; ctx.font = '800 14px Segoe UI'; ctx.fillText(pct + '%', 1192, 824);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ===== Bang dieu khien (the nhan vien, giao viec, danh sach) =====
+const $ = id => document.getElementById(id);
+function esc(s){ const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+$('send').onclick = async () => {
+  const title = $('title').value.trim();
+  if (!title){ $('msg').textContent = 'Anh nhập tên nhiệm vụ trước nhé.'; return; }
+  const r = await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, detail: $('detail').value.trim() }) });
+  if (r.ok){ $('title').value = ''; $('detail').value = ''; $('msg').textContent = 'Đã gửi — em sẽ nhận việc và phân phối cho nhân viên.'; poll(); }
+};
+function renderPanels(s){
+  $('staff').innerHTML = s.staff.map(m => `
+    <div class="card ${m.id === 'quanly' ? 'manager' : ''}">
+      <div class="name">${esc(m.name)}</div>
+      <div class="role">${esc(m.role)}</div>
+      <span class="badge ${m.busy ? 'busy' : 'idle'}">${m.busy ? 'Đang làm việc' : 'Đang rảnh'}</span>
+      <div class="bar"><i style="width:${m.progress}%"></i></div>
+      <div class="pct">Tiến độ: ${m.progress}%</div>
+      ${m.task_title ? `<div class="doing">▸ ${esc(m.task_title)}</div>` : ''}
+    </div>`).join('');
+  $('tasks').innerHTML = s.tasks.length ? s.tasks.map(t => `
+    <div class="task">
+      <div class="tt">${esc(t.title)}</div>
+      <div class="meta">Giao lúc ${esc(t.created_at)} · Mã ${esc(t.id)}</div>
+      <div class="stage">Chặng hiện tại: ${esc(t.stage_name)} — ${t.progress}%</div>
+      <div class="bar" style="margin-top:7px"><i style="width:${t.progress}%"></i></div>
+      ${t.detail ? `<div class="detail">${esc(t.detail)}</div>` : ''}
+      ${t.result ? `<div class="result"><b>Kết quả em trình anh:</b>\n${esc(typeof t.result === 'string' ? t.result : (t.result.summary || JSON.stringify(t.result)))}</div>` : ''}
+      <div class="log">${t.log.map(l => `<div>${esc(l.t)} — ${esc(l.msg)}</div>`).join('')}</div>
+    </div>`).join('') : '<p class="empty">Chưa có nhiệm vụ nào.</p>';
+}
+async function poll(){
+  try{
+    const s = await (await fetch('/api/state')).json();
+    renderPanels(s); director(s);
+  }catch(e){ /* server chua san sang, bo qua lan nay */ }
+}
+poll(); setInterval(poll, 2500);
+
+
+</script>
+
+<script>
+// ===== BAN XEM THU: khong co server thi tu phat nhiem vu mau =====
+(function(){
+  async function hasServer(){
+    try{ const r = await fetch('/api/state'); return r.ok; }catch(e){ return false; }
+  }
+  const DSTAGES = ['Chờ em nhận việc', 'Lên kế hoạch', 'Đang thi công', 'Kiểm tra', 'Duyệt cuối', 'Hoàn thành'];
+  const DSTAFF = [
+    { id: 'quanly', name: 'Muse — Quản lý', role: 'Nhận việc, phân phối, kiểm tra và trình kết quả', stage: null },
+    { id: 'kehoach', name: 'Nhân viên Kế hoạch', role: 'Phân tích nhiệm vụ, vẽ kế hoạch', stage: 1 },
+    { id: 'thicong', name: 'Nhân viên Thi công', role: 'Thực hiện phần việc chính', stage: 2 },
+    { id: 'kiemtra', name: 'Nhân viên Kiểm tra', role: 'Chạy thử, soi lỗi', stage: 3 },
+    { id: 'duyet', name: 'Nhân viên Duyệt', role: 'Ký duyệt lần cuối trước khi trình', stage: 4 } ];
+  function fakeState(stage, loop){
+    const done = stage >= 5;
+    const task = { id: 'xemthu' + loop, title: 'Dựng video giới thiệu tủ bếp',
+      detail: 'Video 60 giây, dọc 9:16 (nhiệm vụ mẫu để anh xem thử)',
+      created_at: 'bản xem thử', stage, status_text: DSTAGES[stage], stage_name: DSTAGES[stage],
+      progress: stage * 20,
+      result: done ? 'Video tủ bếp đã dựng xong: 60 giây, dọc 9:16, có nhạc nền và phụ đề. (Kết quả mẫu trong bản xem thử — bản thật trên máy anh sẽ là kết quả thật.)' : null,
+      log: [{ t: '—', msg: 'Anh đã giao nhiệm vụ (mẫu)' }] };
+    const staff = DSTAFF.map(s => {
+      const busy = s.stage === null ? !done : (s.stage === stage);
+      return { ...s, busy, task_title: busy ? task.title : null, progress: busy ? stage * 20 : 0 };
+    });
+    return { stages: DSTAGES, staff, tasks: [task] };
+  }
+  const idleState = { stages: DSTAGES, staff: DSTAFF.map(s => ({ ...s, busy: false, task_title: null, progress: 0 })), tasks: [] };
+  function feed(s){ renderPanels(s); director(s); }
+  async function start(){
+    if (await hasServer()) return; // dang chay ban that tren may anh -> khong can mau
+    $('msg').textContent = 'Bản xem thử đang tự chạy một nhiệm vụ mẫu — bản cài trên máy anh sẽ nhận việc thật.';
+    $('send').disabled = true; $('send').style.opacity = .5;
+    let loop = 1;
+    const run = () => {
+      feed(fakeState(0, loop));
+      [1, 2, 3, 4, 5].forEach(st => setTimeout(() => feed(fakeState(st, loop)), st * 8000));
+      setTimeout(() => { feed(idleState); loop++; setTimeout(run, 4000); }, 52000);
+    };
+    run();
+  }
+  setTimeout(start, 1200);
+})();
+</script>
+</body>
+</html>
